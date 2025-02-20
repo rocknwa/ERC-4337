@@ -1,61 +1,83 @@
 const hre = require("hardhat");
 
-
-const FACTORY_ADDRESS = "0x5FbDB2315678afecb367f032d93F642f64180aa3";
-const EP_ADDRESS = "0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512";
-const PM_ADDRESS = "0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0";
+const FACTORY_ADDRESS = "0x10e60A87ceFF98456F69663f24483bC9b8a662B7";
+const EP_ADDRESS = "0x5FF137D4b0FDCD49DcA30c7CF57E578a026d2789";
+const PM_ADDRESS = "0x7D0165344149f387eCCb8dE4D13E230bfdfAD87c";
 
 async function main() {
   console.log("Getting EntryPoint contract...");
   const entryPoint = await hre.ethers.getContractAt("EntryPoint", EP_ADDRESS);
   console.log("EntryPoint contract fetched:", entryPoint.target);
 
-  const sender = await hre.ethers.getCreateAddress({
-    from: FACTORY_ADDRESS,
-    nonce: FACTORY_NONCE,
-  });
-
   const [signer0] = await hre.ethers.getSigners();
   const address0 = await signer0.getAddress();
   const AccountFactory = await hre.ethers.getContractFactory("AccountFactory");
-  
-  const initCode = //"0x";
-   FACTORY_ADDRESS + AccountFactory.interface
-    .encodeFunctionData("createAccount", [address0])
-    .slice(2);
 
-    console.log("smart account:", {sender})
+  const initCode =
+    FACTORY_ADDRESS +
+    AccountFactory.interface
+      .encodeFunctionData("createAccount", [address0])
+      .slice(2);
+let sender;
+  try {
+    await entryPoint.getSenderAddress(initCode);
+  } catch (ex) {
+    sender = "0x" + ex.data.slice(-40);
+  }
+
+  const code = await hre.ethers.provider.getCode(sender);
+  if (code !== "0x") {
+    initCode = "0x";
+  }
+
+  console.log("smart account:", { sender });
 
   console.log("Init code:", initCode);
 
- await entryPoint.depositTo(PM_ADDRESS, {
-    value: hre.ethers.parseEther("100"),
-  });
+  /*await entryPoint.depositTo(PM_ADDRESS, {
+    value: hre.ethers.parseEther(".2"),
+  });*/
 
   // CREATE
   const Account = await hre.ethers.getContractFactory("Account");
   const userOp = {
     sender,
-    nonce: await entryPoint.getNonce(sender, 0),
+    nonce: "0x" + (await entryPoint.getNonce(sender, 0)).toString(16),
     initCode,
     callData: Account.interface.encodeFunctionData("execute"),
-    callGasLimit: 400_000, // Increased gas limit
+    /* callGasLimit: 400_000, // Increased gas limit
     verificationGasLimit: 400_000, // Increased gas limit
     preVerificationGas: 50_000,
     maxFeePerGas: hre.ethers.parseUnits("10", "gwei"),
-    maxPriorityFeePerGas: hre.ethers.parseUnits("5", "gwei"),
+    maxPriorityFeePerGas: hre.ethers.parseUnits("5", "gwei"),*/
     paymasterAndData: PM_ADDRESS,
-    signature: "0x",
+    signature:
+      "0xfffffffffffffffffffffffffffffff0000000000000000000000000000000007aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa1c",
   };
 
-  console.log("UserOp:", userOp);
+  const {preVerificationGas, verificationGasLimit, callGasLimit} = await ethers.provider.send("eth_estimateUserOperationGas", [
+    userOp,
+    EP_ADDRESS,
+  ]);
+
+  userOp.preVerificationGas = preVerificationGas;
+  userOp.verificationGasLimit = verificationGasLimit;
+  userOp.callGasLimit = callGasLimit;
+
+  const {maxFeePerGas} = await ethers.provider.getFeeData();
+  userOp.maxFeePerGas = "0x" + maxFeePerGas.toString(16);
+
+  const maxPriorityFeePerGas = await ethers.provider.send("rundler_maxPriorityFeePerGas");
+  userOp.maxPriorityFeePerGas = maxPriorityFeePerGas;
+  console.log("response:", response);
+
+  /*console.log("UserOp:", userOp);
   const userOpHash = await entryPoint.getUserOpHash(userOp);
   userOp.signature = await signer0.signMessage(hre.ethers.getBytes(userOpHash));
 
-
   const tx = await entryPoint.handleOps([userOp], address0);
   const receipt = await tx.wait();
-  console.log("Transaction receipt:", receipt);
+  console.log("Transaction receipt:", receipt);*/
 }
 
 main()
