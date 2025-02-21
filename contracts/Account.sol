@@ -43,14 +43,15 @@ contract AccountFactory {
         if(addr.code.length > 0) {
             return addr;
         } // Check if contract already deployed
-        return Create2.deploy(0, salt, bytecode); // Deploy bytecode
+        return deploy(salt, bytecode); // Deploy bytecode
+    }
 
-        //new Account(owner);
-       
-       /* bytes memory bytecode = type(Account).creationCode;
-        bytes32 salt = keccak256(abi.encodePacked(owner));
-        address account = Create2.deploy(0, salt, bytecode);
-        Account(account).initialize(owner);
-        return account;*/
+    function deploy(bytes32 salt, bytes memory bytecode) internal returns (address addr) {
+        require(bytecode.length != 0, "Create2: bytecode length is zero");
+        /// @solidity memory-safe-assembly
+        assembly {
+            addr := create2(0, add(bytecode, 0x20), mload(bytecode), salt)
+        }
+        require(addr != address(0), "Create2: Failed on deploy");
     }
 }

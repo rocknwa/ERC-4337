@@ -1,6 +1,6 @@
 const hre = require("hardhat");
 
-const FACTORY_ADDRESS = "0x10e60A87ceFF98456F69663f24483bC9b8a662B7";
+const FACTORY_ADDRESS = "0x004bAe156F198e9e05824A534ecDc4070745Bf8E";
 const EP_ADDRESS = "0x5FF137D4b0FDCD49DcA30c7CF57E578a026d2789";
 const PM_ADDRESS = "0x7D0165344149f387eCCb8dE4D13E230bfdfAD87c";
 
@@ -13,12 +13,12 @@ async function main() {
   const address0 = await signer0.getAddress();
   const AccountFactory = await hre.ethers.getContractFactory("AccountFactory");
 
-  const initCode =
+  let initCode =
     FACTORY_ADDRESS +
     AccountFactory.interface
       .encodeFunctionData("createAccount", [address0])
       .slice(2);
-let sender;
+  let sender;
   try {
     await entryPoint.getSenderAddress(initCode);
   } catch (ex) {
@@ -40,9 +40,11 @@ let sender;
 
   // CREATE
   const Account = await hre.ethers.getContractFactory("Account");
+  const nonce = (await entryPoint.getNonce(sender, 0)).toString(16);
+  const paddedNonce = nonce.padStart(64, '0'); // Ensure the nonce is properly padded
   const userOp = {
     sender,
-    nonce: "0x" + (await entryPoint.getNonce(sender, 0)).toString(16),
+    nonce: "0x" + paddedNonce,
     initCode,
     callData: Account.interface.encodeFunctionData("execute"),
     /* callGasLimit: 400_000, // Increased gas limit
@@ -55,7 +57,7 @@ let sender;
       "0xfffffffffffffffffffffffffffffff0000000000000000000000000000000007aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa1c",
   };
 
-  const {preVerificationGas, verificationGasLimit, callGasLimit} = await ethers.provider.send("eth_estimateUserOperationGas", [
+  const { preVerificationGas, verificationGasLimit, callGasLimit } = await ethers.provider.send("eth_estimateUserOperationGas", [
     userOp,
     EP_ADDRESS,
   ]);
@@ -64,18 +66,30 @@ let sender;
   userOp.verificationGasLimit = verificationGasLimit;
   userOp.callGasLimit = callGasLimit;
 
-  const {maxFeePerGas} = await ethers.provider.getFeeData();
+  const { maxFeePerGas } = await ethers.provider.getFeeData();
   userOp.maxFeePerGas = "0x" + maxFeePerGas.toString(16);
 
   const maxPriorityFeePerGas = await ethers.provider.send("rundler_maxPriorityFeePerGas");
   userOp.maxPriorityFeePerGas = maxPriorityFeePerGas;
-  console.log("response:", response);
 
-  /*console.log("UserOp:", userOp);
+  console.log("userOp:", userOp);
+
   const userOpHash = await entryPoint.getUserOpHash(userOp);
   userOp.signature = await signer0.signMessage(hre.ethers.getBytes(userOpHash));
 
-  const tx = await entryPoint.handleOps([userOp], address0);
+  try {
+    const opHash = await ethers.provider.send("eth_sendUserOperation", [userOp, EP_ADDRESS]);
+    console.log("opHash:", opHash);
+  } catch (error) {
+    if (error.message.includes("banned opcode: SELFBALANCE")) {
+      console.error("Error: Factory uses banned opcode SELFBALANCE. Please modify the contract to avoid using this opcode.");
+    } else {
+      console.error("Error sending user operation:", error);
+    }
+    process.exit(1);
+  }
+
+  /*const tx = await entryPoint.handleOps([userOp], address0);
   const receipt = await tx.wait();
   console.log("Transaction receipt:", receipt);*/
 }
